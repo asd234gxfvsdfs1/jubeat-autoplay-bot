@@ -5,1615 +5,241 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK Licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Generate Clean Android Project Files
+      - name: Extract Android Project & Compile APK
+        shell: bash
         run: |
-          rm -rf app build.gradle.kts settings.gradle.kts gradle.properties
-          mkdir -p app/src/main/java/com/jubeatbot/autoplay app/src/main/res/xml app/src/main/res/values
-
-          cat << 'EOF_SETTINGS' > settings.gradle.kts
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = "JubeatAutoPlayBot"
-          include(":app")
-          EOF_SETTINGS
-
-          cat << 'EOF_ROOT_GRADLE' > build.gradle.kts
-          plugins {
-              id("com.android.application") version "8.5.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
-          }
-          EOF_ROOT_GRADLE
-
-          cat << 'EOF_PROPS' > gradle.properties
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          android.useAndroidX=true
-          kotlin.code.style=official
-          android.nonTransitiveRClass=true
-          EOF_PROPS
-
-          cat << 'EOF_APP_GRADLE' > app/build.gradle.kts
-          plugins {
-              id("com.android.application")
-              id("org.jetbrains.kotlin.android")
-          }
-
-          android {
-              namespace = "com.jubeatbot.autoplay"
-              compileSdk = 34
-
-              defaultConfig {
-                  applicationId = "com.jubeatbot.autoplay"
-                  minSdk = 29
-                  targetSdk = 34
-                  versionCode = 2
-                  versionName = "1.0.1-tabA9plus"
-              }
-
-              buildTypes {
-                  release {
-                      isMinifyEnabled = false
-                      signingConfig = signingConfigs.getByName("debug")
-                  }
-              }
-
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-          }
-
-          dependencies {
-              implementation("androidx.core:core-ktx:1.13.1")
-              implementation("androidx.appcompat:appcompat:1.7.0")
-              implementation("com.google.android.material:material:1.12.0")
-              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-          }
-          EOF_APP_GRADLE
-
-          cat << 'EOF_MANIFEST' > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-              <queries>
-                  <package android:name="com.konami.android.jubeat" />
-              </queries>
-
-              <application
-                  android:allowBackup="true"
-                  android:label="Jubeat AutoPlay Bot (Tab A9+)"
-                  android:supportsRtl="true"
-                  android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
-
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:screenOrientation="portrait">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-
-                  <activity
-                      android:name=".MediaProjectionRequestActivity"
-                      android:exported="false"
-                      android:theme="@android:style/Theme.Translucent.NoTitleBar"
-                      android:excludeFromRecents="true" />
-
-                  <service
-                      android:name=".MediaProjectionSyncService"
-                      android:enabled="true"
-                      android:exported="false"
-                      android:foregroundServiceType="mediaProjection" />
-
-                  <service
-                      android:name=".JubeatAccessibilityService"
-                      android:enabled="true"
-                      android:exported="false"
-                      android:label="Jubeat AutoPlay Gesture Service"
-                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-                      <intent-filter>
-                          <action android:name="android.accessibilityservice.AccessibilityService" />
-                      </intent-filter>
-                      <meta-data
-                          android:name="android.accessibilityservice"
-                          android:resource="@xml/accessibility_service_config" />
-                  </service>
-
-              </application>
-          </manifest>
-          EOF_MANIFEST
-
-          cat << 'EOF_ACC' > app/src/main/res/xml/accessibility_service_config.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-              android:accessibilityEventTypes="typeWindowStateChanged"
-              android:accessibilityFeedbackType="feedbackGeneric"
-              android:accessibilityFlags="flagDefault"
-              android:canPerformGestures="true"
-              android:canRetrieveWindowContent="false"
-              android:description="@string/accessibility_service_description"
-              android:notificationTimeout="50" />
-          EOF_ACC
-
-          cat << 'EOF_STRINGS' > app/src/main/res/values/strings.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">Jubeat AutoPlay Bot</string>
-              <string name="accessibility_service_description">Executes chart-synced multi-touch taps and hold gestures on the 4x4 grid in jubeat plus (com.konami.android.jubeat) on Samsung Galaxy Tab A9+.</string>
-          </resources>
-          EOF_STRINGS
-
-          cat << 'EOF_KT' > app/src/main/java/com/jubeatbot/autoplay/JubeatAutoPlayBot.kt
-          package com.jubeatbot.autoplay
-
-          import android.accessibilityservice.AccessibilityService
-          import android.accessibilityservice.GestureDescription
-          import android.app.Activity
-          import android.app.Notification
-          import android.app.NotificationChannel
-          import android.app.NotificationManager
-          import android.app.Service
-          import android.content.Context
-          import android.content.Intent
-          import android.content.SharedPreferences
-          import android.content.pm.ServiceInfo
-          import android.graphics.Canvas
-          import android.graphics.Color
-          import android.graphics.Paint
-          import android.graphics.Path
-          import android.graphics.PixelFormat
-          import android.graphics.PointF
-          import android.hardware.display.DisplayManager
-          import android.hardware.display.VirtualDisplay
-          import android.media.Image
-          import android.media.ImageReader
-          import android.media.projection.MediaProjection
-          import android.media.projection.MediaProjectionManager
-          import android.net.Uri
-          import android.os.Build
-          import android.os.Bundle
-          import android.os.Handler
-          import android.os.HandlerThread
-          import android.os.IBinder
-          import android.os.Looper
-          import android.os.SystemClock
-          import android.provider.Settings
-          import android.util.TypedValue
-          import android.view.Gravity
-          import android.view.MotionEvent
-          import android.view.View
-          import android.view.WindowManager
-          import android.view.accessibility.AccessibilityEvent
-          import android.widget.Button
-          import android.widget.EditText
-          import android.widget.LinearLayout
-          import android.widget.ScrollView
-          import android.widget.TextView
-          import android.widget.Toast
-          import androidx.appcompat.app.AppCompatActivity
-          import androidx.core.app.NotificationCompat
-          import kotlinx.coroutines.CoroutineScope
-          import kotlinx.coroutines.Dispatchers
-          import kotlinx.coroutines.Job
-          import kotlinx.coroutines.SupervisorJob
-          import kotlinx.coroutines.cancel
-          import kotlinx.coroutines.delay
-          import kotlinx.coroutines.isActive
-          import kotlinx.coroutines.launch
-          import org.json.JSONArray
-          import org.json.JSONObject
-          import java.io.BufferedReader
-          import java.io.InputStreamReader
-          import java.util.Locale
-          import java.util.TreeSet
-          import kotlin.math.abs
-          import kotlin.math.hypot
-          import kotlin.math.max
-          import kotlin.math.min
-          import kotlin.math.roundToLong
-
-          data class JubeatNote(
-              val lane: Int,
-              val timeMs: Long,
-              val durationMs: Long = 0L,
-              val tailChipLane: Int = lane
-          ) : Comparable<JubeatNote> {
-              val isHold: Boolean get() = durationMs > 0L
-              val endTimeMs: Long get() = timeMs + durationMs
-
-              override fun compareTo(other: JubeatNote): Int {
-                  val cmp = timeMs.compareTo(other.timeMs)
-                  return if (cmp != 0) cmp else lane.compareTo(other.lane)
-              }
-          }
-
-          data class ParsedChart(
-              val title: String,
-              val difficulty: String,
-              val bpm: Double,
-              val notes: List<JubeatNote>,
-              val firstMeasureMs: Long = 0L
-          )
-
-          object ChartParser {
-
-              fun parseAuto(rawText: String, fileName: String = "Chart"): ParsedChart {
-                  val trimmed = rawText.trim()
-                  return when {
-                      fileName.endsWith(".eve", ignoreCase = true) ||
-                          trimmed.lineSequence().any { it.contains(",PLAY") || it.contains(",MEASURE") || it.contains(",HAKU") } ->
-                          parseKonamiEve(trimmed, fileName)
-
-                      trimmed.startsWith("{") && trimmed.contains("\"data\"") ->
-                          parseMemonJson(trimmed, fileName)
-
-                      trimmed.startsWith("{") || trimmed.startsWith("[") ->
-                          parseSimpleJson(trimmed, fileName)
-
-                      else ->
-                          parseMemoTxt(trimmed, fileName)
-                  }
-              }
-
-              fun parseKonamiEve(eveText: String, title: String = "EVE Chart"): ParsedChart {
-                  val notes = mutableListOf<JubeatNote>()
-                  var initialBpm = 120.0
-                  var hasSetInitialBpm = false
-                  var firstMeasureMs: Long? = null
-
-                  for (rawLine in eveText.lineSequence()) {
-                      val line = rawLine.trim()
-                      if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) continue
-                      val parts = line.split(",")
-                      if (parts.size < 3) continue
-
-                      val sectorTick = parts[0].trim().toLongOrNull() ?: continue
-                      val tag = parts[1].trim().uppercase(Locale.US)
-                      val param = parts[2].trim().toLongOrNull() ?: continue
-                      val timeMs = ((sectorTick * 1000.0) / 300.0).roundToLong()
-
-                      when (tag) {
-                          "TEMPO" -> {
-                              if (param > 0L && !hasSetInitialBpm) {
-                                  initialBpm = 60_000_000.0 / param.toDouble()
-                                  hasSetInitialBpm = true
-                              }
-                          }
-                          "MEASURE" -> {
-                              if (firstMeasureMs == null) firstMeasureMs = timeMs
-                          }
-                          "PLAY" -> {
-                              val lane = (param and 0x0FL).toInt()
-                              notes.add(JubeatNote(lane = lane, timeMs = timeMs, durationMs = 0L))
-                          }
-                          "LONG" -> {
-                              val lane = (param and 0x0FL).toInt()
-                              val chip = ((param shr 4) and 0x0FL).toInt()
-                              val durationTicks = param shr 8
-                              val durationMs = ((durationTicks * 1000.0) / 300.0).roundToLong().coerceAtLeast(50L)
-                              notes.add(JubeatNote(lane = lane, timeMs = timeMs, durationMs = durationMs, tailChipLane = chip))
-                          }
-                      }
-                  }
-
-                  notes.sort()
-                  return ParsedChart(
-                      title = title.removeSuffix(".eve"),
-                      difficulty = "EXT",
-                      bpm = initialBpm,
-                      notes = notes,
-                      firstMeasureMs = firstMeasureMs ?: (notes.firstOrNull()?.timeMs ?: 0L)
-                  )
-              }
-
-              fun parseMemonJson(jsonText: String, fallbackTitle: String = "Memon Chart"): ParsedChart {
-                  val root = JSONObject(jsonText)
-                  val meta = root.optJSONObject("metadata")
-                  val title = meta?.optString("title", fallbackTitle) ?: root.optString("music", fallbackTitle)
-                  val globalBpm = meta?.optDouble("BPM", root.optDouble("BPM", 120.0)) ?: 120.0
-                  val globalOffsetSec = meta?.optDouble("offset", root.optDouble("offset", 0.0)) ?: 0.0
-                  val baseOffsetMs = (-globalOffsetSec * 1000.0).roundToLong()
-
-                  val dataObj = root.getJSONObject("data")
-                  val diffKey = when {
-                      dataObj.has("EXT") -> "EXT"
-                      dataObj.has("ADV") -> "ADV"
-                      dataObj.has("BSC") -> "BSC"
-                      else -> dataObj.keys().next()
-                  }
-                  val chartObj = dataObj.getJSONObject(diffKey)
-                  val resolution = chartObj.optDouble("resolution", 240.0).coerceAtLeast(1.0)
-                  val notesArr = chartObj.getJSONArray("notes")
-
-                  val notes = mutableListOf<JubeatNote>()
-                  val msPerBeat = 60_000.0 / globalBpm
-
-                  for (i in 0 until notesArr.length()) {
-                      val nObj = notesArr.getJSONObject(i)
-                      val lane = nObj.getInt("n").coerceIn(0, 15)
-                      val rawT = nObj.getDouble("t")
-                      val rawL = nObj.optDouble("l", 0.0)
-                      val beats = if (rawT >= resolution && !nObj.has("beats")) rawT / resolution else rawT
-                      val holdBeats = if (rawL >= resolution && !nObj.has("beats")) rawL / resolution else rawL
-
-                      val timeMs = (baseOffsetMs + beats * msPerBeat).roundToLong().coerceAtLeast(0L)
-                      val durationMs = (holdBeats * msPerBeat).roundToLong().coerceAtLeast(0L)
-                      notes.add(JubeatNote(lane = lane, timeMs = timeMs, durationMs = durationMs))
-                  }
-
-                  notes.sort()
-                  return ParsedChart(title, diffKey, globalBpm, notes, notes.firstOrNull()?.timeMs ?: 0L)
-              }
-
-              fun parseSimpleJson(jsonText: String, fallbackTitle: String = "Custom Chart"): ParsedChart {
-                  val notes = mutableListOf<JubeatNote>()
-                  var title = fallbackTitle
-                  var bpm = 120.0
-
-                  val arr: JSONArray = if (jsonText.trimStart().startsWith("{")) {
-                      val obj = JSONObject(jsonText)
-                      title = obj.optString("title", fallbackTitle)
-                      bpm = obj.optDouble("bpm", 120.0)
-                      obj.getJSONArray("notes")
-                  } else {
-                      JSONArray(jsonText)
-                  }
-
-                  for (i in 0 until arr.length()) {
-                      val item = arr.getJSONObject(i)
-                      val lane = if (item.has("lane")) {
-                          item.getInt("lane").coerceIn(0, 15)
-                      } else {
-                          (item.getInt("panel") - 1).coerceIn(0, 15)
-                      }
-                      val timeMs = item.getLong("timeMs")
-                      val durationMs = item.optLong("durationMs", 0L)
-                      notes.add(JubeatNote(lane = lane, timeMs = timeMs, durationMs = durationMs))
-                  }
-
-                  notes.sort()
-                  return ParsedChart(title, "CUSTOM", bpm, notes, notes.firstOrNull()?.timeMs ?: 0L)
-              }
-
-              fun parseMemoTxt(memoText: String, fallbackTitle: String = "Memo Chart"): ParsedChart {
-                  var bpm = 120.0
-                  var offsetMs = 0L
-                  val notes = mutableListOf<JubeatNote>()
-                  val symbolToIndex = mapOf(
-                      '1' to 1, '2' to 2, '3' to 3, '4' to 4,
-                      '5' to 5, '6' to 6, '7' to 7, '8' to 8,
-                      '9' to 9, 'a' to 10, 'b' to 11, 'c' to 12,
-                      'd' to 13, 'e' to 14, 'f' to 15, 'g' to 16
-                  )
-
-                  val gridLines = mutableListOf<String>()
-                  var currentBeat = 0.0
-
-                  for (rawLine in memoText.lineSequence()) {
-                      val line = rawLine.trim()
-                      if (line.startsWith("BPM:", ignoreCase = true) || line.startsWith("t=", ignoreCase = true)) {
-                          bpm = line.substringAfter(":").substringAfter("=").trim().toDoubleOrNull() ?: bpm
-                          continue
-                      }
-                      if (line.startsWith("OFFSET:", ignoreCase = true) || line.startsWith("o=", ignoreCase = true)) {
-                          offsetMs = line.substringAfter(":").substringAfter("=").trim().toLongOrNull() ?: offsetMs
-                          continue
-                      }
-                      if (line.contains("|")) {
-                          gridLines.add(line)
-                          if (gridLines.size == 4) {
-                              val panelMap = mutableMapOf<Int, MutableList<Int>>()
-                              val rhythmTokens = mutableListOf<String>()
-                              for (row in 0 until 4) {
-                                  val parts = gridLines[row].split("|")
-                                  val leftGrid = parts[0].replace(" ", "")
-                                  val maxCol = min(4, leftGrid.length)
-                                  for (col in 0 until maxCol) {
-                                      val ch = leftGrid[col].lowercaseChar()
-                                      val sym = symbolToIndex[ch]
-                                      if (sym != null) {
-                                          panelMap.getOrPut(sym) { mutableListOf() }.add(row * 4 + col)
-                                      }
-                                  }
-                                  if (parts.size >= 2) rhythmTokens.add(parts[1])
-                              }
-                              for (beatLine in rhythmTokens) {
-                                  val subDiv = max(1, beatLine.length)
-                                  for (step in beatLine.indices) {
-                                      val ch = beatLine[step].lowercaseChar()
-                                      val sym = symbolToIndex[ch]
-                                      if (sym != null) {
-                                          val beatTime = currentBeat + (step.toDouble() / subDiv.toDouble())
-                                          val timeMs = offsetMs + (beatTime * (60_000.0 / bpm)).roundToLong()
-                                          panelMap[sym]?.forEach { lane ->
-                                              notes.add(JubeatNote(lane = lane, timeMs = timeMs, durationMs = 0L))
-                                          }
-                                      }
-                                  }
-                                  currentBeat += 1.0
-                              }
-                              gridLines.clear()
-                          }
-                      }
-                  }
-
-                  notes.sort()
-                  return ParsedChart(fallbackTitle, "MEMO", bpm, notes, notes.firstOrNull()?.timeMs ?: 0L)
-              }
-          }
-
-          data class GridGeometry(
-              val screenWidth: Int = 1200,
-              val screenHeight: Int = 1920,
-              val gridLeft: Float = 36f,
-              val gridTop: Float = 696f,
-              val gridRight: Float = 1164f,
-              val gridBottom: Float = 1824f
-          ) {
-              val gridWidth: Float get() = gridRight - gridLeft
-              val gridHeight: Float get() = gridBottom - gridTop
-              val cellWidth: Float get() = gridWidth / 4f
-              val cellHeight: Float get() = gridHeight / 4f
-
-              fun getPanelCenter(lane: Int): PointF {
-                  val clamped = lane.coerceIn(0, 15)
-                  val row = clamped / 4
-                  val col = clamped % 4
-                  return PointF(
-                      gridLeft + (col + 0.5f) * cellWidth,
-                      gridTop + (row + 0.5f) * cellHeight
-                  )
-              }
-          }
-
-          data class FingerStrokeSpec(
-              val lane: Int,
-              val isContinuation: Boolean,
-              val willContinue: Boolean
-          )
-
-          data class GestureSlice(
-              val startTimeMs: Long,
-              val durationMs: Long,
-              val strokes: List<FingerStrokeSpec>
-          )
-
-          object GestureTimelineCompiler {
-              const val SHORT_TAP_DURATION_MS = 38L
-              const val CHORD_QUANTIZE_MS = 10L
-              const val MAX_STROKES = 10
-
-              fun compile(notes: List<JubeatNote>): List<GestureSlice> {
-                  if (notes.isEmpty()) return emptyList()
-
-                  val sorted = notes.sorted()
-                  val quantized = mutableListOf<JubeatNote>()
-                  var clusterAnchorMs = sorted.first().timeMs
-
-                  for (note in sorted) {
-                      val alignedStart = if (abs(note.timeMs - clusterAnchorMs) <= CHORD_QUANTIZE_MS) {
-                          clusterAnchorMs
-                      } else {
-                          clusterAnchorMs = note.timeMs
-                          note.timeMs
-                      }
-                      val dur = if (note.isHold) max(note.durationMs, SHORT_TAP_DURATION_MS) else SHORT_TAP_DURATION_MS
-                      quantized.add(note.copy(timeMs = alignedStart, durationMs = dur))
-                  }
-
-                  val byLane = quantized.groupBy { it.lane }
-                  val normalizedIntervals = mutableListOf<JubeatNote>()
-                  for ((_, laneNotes) in byLane) {
-                      val ordered = laneNotes.sortedBy { it.timeMs }
-                      for (i in ordered.indices) {
-                          val cur = ordered[i]
-                          val nextStart = ordered.getOrNull(i + 1)?.timeMs
-                          val maxEnd = if (nextStart != null) max(cur.timeMs + 16L, nextStart - 16L) else cur.endTimeMs
-                          val safeEnd = min(cur.endTimeMs, maxEnd)
-                          normalizedIntervals.add(cur.copy(durationMs = max(16L, safeEnd - cur.timeMs)))
-                      }
-                  }
-
-                  val timePoints = TreeSet<Long>()
-                  for (interval in normalizedIntervals) {
-                      timePoints.add(interval.timeMs)
-                      timePoints.add(interval.endTimeMs)
-                  }
-                  val boundaries = timePoints.toList()
-                  val slices = mutableListOf<GestureSlice>()
-
-                  for (i in 0 until boundaries.size - 1) {
-                      val sliceStart = boundaries[i]
-                      val sliceEnd = boundaries[i + 1]
-                      val sliceDur = sliceEnd - sliceStart
-                      if (sliceDur <= 0L) continue
-
-                      val activeNotes = normalizedIntervals.filter { note ->
-                          note.timeMs <= sliceStart && note.endTimeMs >= sliceEnd
-                      }.take(MAX_STROKES)
-
-                      if (activeNotes.isEmpty()) continue
-
-                      val strokeSpecs = activeNotes.map { note ->
-                          FingerStrokeSpec(
-                              lane = note.lane,
-                              isContinuation = note.timeMs < sliceStart,
-                              willContinue = note.endTimeMs > sliceEnd
-                          )
-                      }
-                      slices.add(GestureSlice(sliceStart, sliceDur, strokeSpecs))
-                  }
-                  return slices
-              }
-          }
-
-          class MediaProjectionSyncService : Service() {
-
-              enum class SyncDetectionMode {
-                  FIRST_NOTE_MARKER_APPEAR,
-                  START_BANNER_DISAPPEAR
-              }
-
-              companion object {
-                  private const val CHANNEL_ID = "jubeat_sync_channel"
-                  private const val NOTIFICATION_ID = 4430
-
-                  @Volatile
-                  var instance: MediaProjectionSyncService? = null
-
-                  @Volatile
-                  var isCapturing: Boolean = false
-              }
-
-              private var mediaProjection: MediaProjection? = null
-              private var virtualDisplay: VirtualDisplay? = null
-              private var imageReader: ImageReader? = null
-              private var captureThread: HandlerThread? = null
-              private var captureHandler: Handler? = null
-
-              @Volatile
-              private var isArmedForSync: Boolean = false
-
-              @Volatile
-              private var targetFirstNoteLane: Int = 0
-
-              @Volatile
-              private var targetFirstNoteTimeMs: Long = 0L
-
-              @Volatile
-              var markerApproachLeadMs: Long = 767L
-
-              @Volatile
-              var syncMode: SyncDetectionMode = SyncDetectionMode.FIRST_NOTE_MARKER_APPEAR
-
-              private var baselineLuma: Float = -1f
-              private var baselineSamples: Int = 0
-              private var bannerSeenHighBrightness: Boolean = false
-
-              var onSyncLocked: ((Long) -> Unit)? = null
-
-              override fun onCreate() {
-                  super.onCreate()
-                  instance = this
-                  createNotificationChannel()
-              }
-
-              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-                  val notification = buildNotification("MediaProjection Ready for jubeat Auto-Sync")
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                      startForeground(
-                          NOTIFICATION_ID,
-                          notification,
-                          ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                      )
-                  } else {
-                      startForeground(NOTIFICATION_ID, notification)
-                  }
-
-                  val resultCode = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
-                  val resultData: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                      intent?.getParcelableExtra("resultData", Intent::class.java)
-                  } else {
-                      @Suppress("DEPRECATION")
-                      intent?.getParcelableExtra("resultData")
-                  }
-
-                  if (resultCode == Activity.RESULT_OK && resultData != null) {
-                      startScreenCapture(resultCode, resultData)
-                  }
-                  return START_STICKY
-              }
-
-              private fun startScreenCapture(resultCode: Int, resultData: Intent) {
-                  stopScreenCapture()
-
-                  val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                  val projection = mpManager.getMediaProjection(resultCode, resultData) ?: return
-                  mediaProjection = projection
-
-                  val thread = HandlerThread("JubeatScreenSyncThread").apply { start() }
-                  captureThread = thread
-                  val handler = Handler(thread.looper)
-                  captureHandler = handler
-
-                  projection.registerCallback(object : MediaProjection.Callback() {
-                      override fun onStop() {
-                          stopScreenCapture()
-                      }
-                  }, handler)
-
-                  val geom = JubeatAccessibilityService.instance?.gridGeometry ?: GridGeometry()
-                  val capWidth = geom.screenWidth / 2
-                  val capHeight = geom.screenHeight / 2
-
-                  val reader = ImageReader.newInstance(capWidth, capHeight, PixelFormat.RGBA_8888, 3)
-                  imageReader = reader
-
-                  reader.setOnImageAvailableListener({ ir ->
-                      val image = ir.acquireLatestImage() ?: return@setOnImageAvailableListener
-                      try {
-                          if (isArmedForSync) {
-                              processFrameForSync(image, geom)
-                          }
-                      } finally {
-                          image.close()
-                      }
-                  }, handler)
-
-                  virtualDisplay = projection.createVirtualDisplay(
-                      "JubeatSyncDisplay",
-                      capWidth,
-                      capHeight,
-                      resources.displayMetrics.densityDpi,
-                      DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                      reader.surface,
-                      null,
-                      handler
-                  )
-                  isCapturing = true
-              }
-
-              fun armAutoSync(firstNoteLane: Int, firstNoteTimeMs: Long, mode: SyncDetectionMode) {
-                  targetFirstNoteLane = firstNoteLane.coerceIn(0, 15)
-                  targetFirstNoteTimeMs = firstNoteTimeMs
-                  syncMode = mode
-                  baselineLuma = -1f
-                  baselineSamples = 0
-                  bannerSeenHighBrightness = false
-                  isArmedForSync = true
-              }
-
-              fun disarmAutoSync() {
-                  isArmedForSync = false
-              }
-
-              private fun processFrameForSync(image: Image, geom: GridGeometry) {
-                  val frameTimeNanos = SystemClock.elapsedRealtimeNanos()
-                  val plane = image.planes[0]
-                  val buffer = plane.buffer
-                  val pixelStride = plane.pixelStride
-                  val rowStride = plane.rowStride
-
-                  when (syncMode) {
-                      SyncDetectionMode.FIRST_NOTE_MARKER_APPEAR -> {
-                          val center = geom.getPanelCenter(targetFirstNoteLane)
-                          val cx = (center.x / 2f).toInt().coerceIn(8, image.width - 9)
-                          val cy = (center.y / 2f).toInt().coerceIn(8, image.height - 9)
-
-                          var totalLuma = 0f
-                          var count = 0
-                          for (dy in -6..6 step 3) {
-                              for (dx in -6..6 step 3) {
-                                  val offset = (cy + dy) * rowStride + (cx + dx) * pixelStride
-                                  if (offset >= 0 && offset + 2 < buffer.limit()) {
-                                      val r = buffer.get(offset).toInt() and 0xFF
-                                      val g = buffer.get(offset + 1).toInt() and 0xFF
-                                      val b = buffer.get(offset + 2).toInt() and 0xFF
-                                      totalLuma += (0.299f * r + 0.587f * g + 0.114f * b)
-                                      count++
-                                  }
-                              }
-                          }
-                          if (count == 0) return
-                          val avgLuma = totalLuma / count
-
-                          if (baselineSamples < 8) {
-                              baselineLuma = if (baselineLuma < 0f) avgLuma else (baselineLuma * 0.7f + avgLuma * 0.3f)
-                              baselineSamples++
-                              return
-                          }
-
-                          if (abs(avgLuma - baselineLuma) >= 28.0f) {
-                              isArmedForSync = false
-                              val currentSongElapsedMs = targetFirstNoteTimeMs - markerApproachLeadMs
-                              val computedSongStartNanos = frameTimeNanos - (currentSongElapsedMs * 1_000_000L)
-                              onSyncLocked?.invoke(computedSongStartNanos)
-                          }
-                      }
-
-                      SyncDetectionMode.START_BANNER_DISAPPEAR -> {
-                          val cx = (geom.gridLeft + geom.gridWidth * 0.5f).toInt() / 2
-                          val cy = (geom.gridTop + geom.gridHeight * 0.5f).toInt() / 2
-                          val offset = cy * rowStride + cx * pixelStride
-                          if (offset >= 0 && offset + 2 < buffer.limit()) {
-                              val r = buffer.get(offset).toInt() and 0xFF
-                              val g = buffer.get(offset + 1).toInt() and 0xFF
-                              val b = buffer.get(offset + 2).toInt() and 0xFF
-                              val luma = 0.299f * r + 0.587f * g + 0.114f * b
-                              if (luma > 165f) {
-                                  bannerSeenHighBrightness = true
-                              } else if (bannerSeenHighBrightness && luma < 75f) {
-                                  isArmedForSync = false
-                                  onSyncLocked?.invoke(frameTimeNanos)
-                              }
-                          }
-                      }
-                  }
-              }
-
-              fun stopScreenCapture() {
-                  isArmedForSync = false
-                  isCapturing = false
-                  virtualDisplay?.release()
-                  virtualDisplay = null
-                  imageReader?.close()
-                  imageReader = null
-                  mediaProjection?.stop()
-                  mediaProjection = null
-                  captureThread?.quitSafely()
-                  captureThread = null
-              }
-
-              override fun onDestroy() {
-                  stopScreenCapture()
-                  instance = null
-                  super.onDestroy()
-              }
-
-              override fun onBind(intent: Intent?): IBinder? = null
-
-              private fun createNotificationChannel() {
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      val channel = NotificationChannel(
-                          CHANNEL_ID,
-                          "Jubeat Screen Sync Service",
-                          NotificationManager.IMPORTANCE_LOW
-                      )
-                      val nm = getSystemService(NotificationManager::class.java)
-                      nm.createNotificationChannel(channel)
-                  }
-              }
-
-              private fun buildNotification(text: String): Notification {
-                  return NotificationCompat.Builder(this, CHANNEL_ID)
-                      .setContentTitle("Jubeat AutoPlay Bot")
-                      .setContentText(text)
-                      .setSmallIcon(android.R.drawable.ic_media_play)
-                      .setOngoing(true)
-                      .build()
-              }
-          }
-
-          class JubeatAccessibilityService : AccessibilityService() {
-
-              companion object {
-                  @Volatile
-                  var instance: JubeatAccessibilityService? = null
-              }
-
-              private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-              private var playbackJob: Job? = null
-              private lateinit var prefs: SharedPreferences
-
-              var gridGeometry: GridGeometry = GridGeometry()
-              var currentChart: ParsedChart? = null
-              var compiledSlices: List<GestureSlice> = emptyList()
-
-              @Volatile
-              var userTimingOffsetMs: Long = 0L
-
-              @Volatile
-              var isPlayingChart: Boolean = false
-
-              private var overlayHud: OverlayHudController? = null
-              private var calibrationOverlay: GridCalibrationOverlay? = null
-
-              override fun onServiceConnected() {
-                  super.onServiceConnected()
-                  instance = this
-                  prefs = getSharedPreferences("jubeat_bot_prefs", Context.MODE_PRIVATE)
-                  loadSavedCalibration()
-                  loadChart(SampleCharts.BUILTIN_SAMPLE_EVE, "Sample: Evans (EXT).eve")
-                  overlayHud = OverlayHudController(this)
-                  calibrationOverlay = GridCalibrationOverlay(this)
-              }
-
-              fun loadSavedCalibration() {
-                  val dm = resources.displayMetrics
-                  val sw = min(dm.widthPixels, dm.heightPixels).takeIf { it > 0 } ?: 1200
-                  val sh = max(dm.widthPixels, dm.heightPixels).takeIf { it > 0 } ?: 1920
-
-                  val defaultLeft = sw * 0.03f
-                  val defaultRight = sw * 0.97f
-                  val defaultWidth = defaultRight - defaultLeft
-                  val defaultTop = sh * 0.3625f
-                  val defaultBottom = defaultTop + defaultWidth
-
-                  gridGeometry = GridGeometry(
-                      screenWidth = sw,
-                      screenHeight = sh,
-                      gridLeft = prefs.getFloat("gridLeft", defaultLeft),
-                      gridTop = prefs.getFloat("gridTop", defaultTop),
-                      gridRight = prefs.getFloat("gridRight", defaultRight),
-                      gridBottom = prefs.getFloat("gridBottom", defaultBottom)
-                  )
-                  userTimingOffsetMs = prefs.getLong("userTimingOffsetMs", 0L)
-              }
-
-              fun saveCalibration(newGeom: GridGeometry) {
-                  gridGeometry = newGeom
-                  prefs.edit()
-                      .putFloat("gridLeft", newGeom.gridLeft)
-                      .putFloat("gridTop", newGeom.gridTop)
-                      .putFloat("gridRight", newGeom.gridRight)
-                      .putFloat("gridBottom", newGeom.gridBottom)
-                      .putLong("userTimingOffsetMs", userTimingOffsetMs)
-                      .apply()
-              }
-
-              fun loadChart(rawContent: String, fileName: String): ParsedChart {
-                  val parsed = ChartParser.parseAuto(rawContent, fileName)
-                  currentChart = parsed
-                  compiledSlices = GestureTimelineCompiler.compile(parsed.notes)
-                  overlayHud?.updateChartStatus(parsed, compiledSlices.size)
-                  return parsed
-              }
-
-              fun showFloatingHud() {
-                  overlayHud?.show()
-              }
-
-              fun hideFloatingHud() {
-                  overlayHud?.hide()
-                  calibrationOverlay?.hide()
-              }
-
-              fun toggleGridCalibrationOverlay() {
-                  val cal = calibrationOverlay ?: return
-                  if (cal.isShowing) cal.hide() else cal.show()
-              }
-
-              fun armAutoSyncPlayback(): Boolean {
-                  val chart = currentChart ?: return false
-                  val firstNote = chart.notes.firstOrNull() ?: return false
-                  val mpService = MediaProjectionSyncService.instance ?: return false
-                  if (!MediaProjectionSyncService.isCapturing) return false
-
-                  stopPlayback()
-                  mpService.onSyncLocked = { songStartNanos ->
-                      startPlaybackAtAnchor(songStartNanos)
-                  }
-                  mpService.armAutoSync(
-                      firstNoteLane = firstNote.lane,
-                      firstNoteTimeMs = firstNote.timeMs,
-                      mode = MediaProjectionSyncService.SyncDetectionMode.FIRST_NOTE_MARKER_APPEAR
-                  )
-                  return true
-              }
-
-              fun startPlaybackNow(anchorToFirstNote: Boolean = true) {
-                  val chart = currentChart ?: return
-                  val firstNoteMs = if (anchorToFirstNote) (chart.notes.firstOrNull()?.timeMs ?: 0L) else 0L
-                  val songStartNanos = SystemClock.elapsedRealtimeNanos() - (firstNoteMs * 1_000_000L)
-                  startPlaybackAtAnchor(songStartNanos)
-              }
-
-              fun startPlaybackAtAnchor(songStartElapsedNanos: Long) {
-                  stopPlayback()
-                  val slices = compiledSlices
-                  if (slices.isEmpty()) return
-
-                  isPlayingChart = true
-                  overlayHud?.onPlaybackStateChanged(true)
-
-                  playbackJob = serviceScope.launch {
-                      val activeHoldingStrokes = mutableMapOf<Int, GestureDescription.StrokeDescription>()
-
-                      for (slice in slices) {
-                          if (!isActive || !isPlayingChart) break
-
-                          val targetFireNanos = songStartElapsedNanos +
-                              ((slice.startTimeMs + userTimingOffsetMs) * 1_000_000L)
-                          val nowNanos = SystemClock.elapsedRealtimeNanos()
-                          val waitMs = (targetFireNanos - nowNanos) / 1_000_000L
-
-                          if (waitMs > 2L) {
-                              delay(waitMs - 1L)
-                          }
-                          while (SystemClock.elapsedRealtimeNanos() < targetFireNanos && isActive) {
-                              Thread.yield()
-                          }
-
-                          if (SystemClock.elapsedRealtimeNanos() - targetFireNanos > 80_000_000L &&
-                              slice.strokes.none { it.willContinue || it.isContinuation }
-                          ) {
-                              continue
-                          }
-
-                          dispatchSlice(slice, activeHoldingStrokes)
-                      }
-
-                      isPlayingChart = false
-                      overlayHud?.onPlaybackStateChanged(false)
-                  }
-              }
-
-              private fun dispatchSlice(
-                  slice: GestureSlice,
-                  activeHoldingStrokes: MutableMap<Int, GestureDescription.StrokeDescription>
-              ) {
-                  val builder = GestureDescription.Builder()
-                  val nextHoldingStrokes = mutableMapOf<Int, GestureDescription.StrokeDescription>()
-                  val safeDurationMs = slice.durationMs.coerceIn(16L, 59_000L)
-                  var addedCount = 0
-
-                  for (spec in slice.strokes) {
-                      val center = gridGeometry.getPanelCenter(spec.lane)
-                      val path = Path().apply {
-                          moveTo(center.x, center.y)
-                          lineTo(center.x + 0.5f, center.y + 0.5f)
-                      }
-
-                      val prevStroke = activeHoldingStrokes[spec.lane]
-                      val strokeDesc: GestureDescription.StrokeDescription = if (
-                          Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                          spec.isContinuation &&
-                          prevStroke != null
-                      ) {
-                          prevStroke.continueStroke(path, 0L, safeDurationMs, spec.willContinue)
-                      } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                          GestureDescription.StrokeDescription(path, 0L, safeDurationMs, spec.willContinue)
-                      } else {
-                          GestureDescription.StrokeDescription(path, 0L, safeDurationMs)
-                      }
-
-                      builder.addStroke(strokeDesc)
-                      addedCount++
-
-                      if (spec.willContinue) {
-                          nextHoldingStrokes[spec.lane] = strokeDesc
-                      }
-                  }
-
-                  activeHoldingStrokes.clear()
-                  activeHoldingStrokes.putAll(nextHoldingStrokes)
-
-                  if (addedCount > 0) {
-                      dispatchGesture(builder.build(), null, null)
-                  }
-              }
-
-              fun stopPlayback() {
-                  isPlayingChart = false
-                  MediaProjectionSyncService.instance?.disarmAutoSync()
-                  playbackJob?.cancel()
-                  playbackJob = null
-                  overlayHud?.onPlaybackStateChanged(false)
-              }
-
-              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-
-              override fun onInterrupt() {
-                  stopPlayback()
-              }
-
-              override fun onDestroy() {
-                  stopPlayback()
-                  hideFloatingHud()
-                  serviceScope.cancel()
-                  instance = null
-                  super.onDestroy()
-              }
-          }
-
-          class OverlayHudController(private val service: JubeatAccessibilityService) {
-
-              private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-              private val mainHandler = Handler(Looper.getMainLooper())
-              private var rootView: View? = null
-              private var statusText: TextView? = null
-              private var offsetText: TextView? = null
-              private var isAdded = false
-
-              fun show() {
-                  mainHandler.post {
-                      if (isAdded || !Settings.canDrawOverlays(service)) return@post
-
-                      val params = WindowManager.LayoutParams(
-                          WindowManager.LayoutParams.WRAP_CONTENT,
-                          WindowManager.LayoutParams.WRAP_CONTENT,
-                          WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                              WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                          PixelFormat.TRANSLUCENT
-                      ).apply {
-                          gravity = Gravity.TOP or Gravity.START
-                          x = 24
-                          y = 36
-                      }
-
-                      val container = LinearLayout(service).apply {
-                          orientation = LinearLayout.VERTICAL
-                          setBackgroundColor(Color.argb(225, 18, 22, 31))
-                          setPadding(20, 14, 20, 14)
-                      }
-
-                      val titleRow = TextView(service).apply {
-                          val chart = service.currentChart
-                          text = if (chart != null) {
-                              "JubeatBot [${chart.title}] (${chart.notes.size} notes)"
-                          } else {
-                              "JubeatBot [No Chart Loaded]"
-                          }
-                          setTextColor(Color.rgb(0, 230, 180))
-                          setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                      }
-                      statusText = titleRow
-                      container.addView(titleRow)
-
-                      var initialX = 0
-                      var initialY = 0
-                      var touchX = 0f
-                      var touchY = 0f
-                      titleRow.setOnTouchListener { _, ev ->
-                          when (ev.action) {
-                              MotionEvent.ACTION_DOWN -> {
-                                  initialX = params.x
-                                  initialY = params.y
-                                  touchX = ev.rawX
-                                  touchY = ev.rawY
-                                  true
-                              }
-                              MotionEvent.ACTION_MOVE -> {
-                                  params.x = initialX + (ev.rawX - touchX).toInt()
-                                  params.y = initialY + (ev.rawY - touchY).toInt()
-                                  windowManager.updateViewLayout(container, params)
-                                  true
-                              }
-                              else -> false
-                          }
-                      }
-
-                      val btnRow = LinearLayout(service).apply {
-                          orientation = LinearLayout.HORIZONTAL
-                      }
-
-                      fun makeBtn(label: String, bgColor: Int, onClick: () -> Unit): Button {
-                          return Button(service).apply {
-                              text = label
-                              setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                              setTextColor(Color.WHITE)
-                              setBackgroundColor(bgColor)
-                              minHeight = 0
-                              minimumHeight = 0
-                              minWidth = 0
-                              minimumWidth = 0
-                              setPadding(16, 10, 16, 10)
-                              setOnClickListener { onClick() }
-                          }
-                      }
-
-                      btnRow.addView(makeBtn("AUTO-SYNC", Color.rgb(16, 124, 65)) {
-                          if (!MediaProjectionSyncService.isCapturing) {
-                              val reqIntent = Intent(service, MediaProjectionRequestActivity::class.java).apply {
-                                  addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                              }
-                              service.startActivity(reqIntent)
-                              Toast.makeText(service, "Grant screen capture, then tap AUTO-SYNC", Toast.LENGTH_SHORT).show()
-                          } else if (service.armAutoSyncPlayback()) {
-                              statusText?.text = "ARMED: Waiting for 1st Note Marker..."
-                          }
-                      })
-
-                      btnRow.addView(makeBtn("SYNC 1ST", Color.rgb(0, 110, 210)) {
-                          service.startPlaybackNow(anchorToFirstNote = true)
-                      })
-
-                      btnRow.addView(makeBtn("STOP", Color.rgb(185, 35, 35)) {
-                          service.stopPlayback()
-                      })
-
-                      btnRow.addView(makeBtn("-10ms", Color.rgb(55, 65, 81)) {
-                          service.userTimingOffsetMs -= 10L
-                          service.saveCalibration(service.gridGeometry)
-                          updateOffsetLabel()
-                      })
-
-                      val offLbl = TextView(service).apply {
-                          text = "${service.userTimingOffsetMs}ms"
-                          setTextColor(Color.WHITE)
-                          setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                          setPadding(10, 10, 10, 10)
-                      }
-                      offsetText = offLbl
-                      btnRow.addView(offLbl)
-
-                      btnRow.addView(makeBtn("+10ms", Color.rgb(55, 65, 81)) {
-                          service.userTimingOffsetMs += 10L
-                          service.saveCalibration(service.gridGeometry)
-                          updateOffsetLabel()
-                      })
-
-                      btnRow.addView(makeBtn("4x4 GRID", Color.rgb(124, 58, 237)) {
-                          service.toggleGridCalibrationOverlay()
-                      })
-
-                      container.addView(btnRow)
-                      windowManager.addView(container, params)
-                      rootView = container
-                      isAdded = true
-                  }
-              }
-
-              private fun updateOffsetLabel() {
-                  val sign = if (service.userTimingOffsetMs >= 0) "+" else ""
-                  offsetText?.text = "$sign${service.userTimingOffsetMs}ms"
-              }
-
-              fun updateChartStatus(chart: ParsedChart, sliceCount: Int) {
-                  mainHandler.post {
-                      statusText?.text = "JubeatBot [${chart.title}] (${chart.notes.size} notes / $sliceCount slices)"
-                  }
-              }
-
-              fun onPlaybackStateChanged(playing: Boolean) {
-                  mainHandler.post {
-                      val chart = service.currentChart
-                      statusText?.text = if (playing) {
-                          "PLAYING: ${chart?.title ?: "Chart"} (Tap STOP to abort)"
-                      } else {
-                          "READY: ${chart?.title ?: "Chart"} (${chart?.notes?.size ?: 0} notes)"
-                      }
-                  }
-              }
-
-              fun hide() {
-                  mainHandler.post {
-                      if (isAdded && rootView != null) {
-                          windowManager.removeView(rootView)
-                          rootView = null
-                          isAdded = false
-                      }
-                  }
-              }
-          }
-
-          class GridCalibrationOverlay(private val service: JubeatAccessibilityService) {
-
-              private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-              private val mainHandler = Handler(Looper.getMainLooper())
-              private var overlayView: View? = null
-
-              var isShowing: Boolean = false
-
-              fun show() {
-                  mainHandler.post {
-                      if (isShowing || !Settings.canDrawOverlays(service)) return@post
-
-                      val params = WindowManager.LayoutParams(
-                          WindowManager.LayoutParams.MATCH_PARENT,
-                          WindowManager.LayoutParams.MATCH_PARENT,
-                          WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                              WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                          PixelFormat.TRANSLUCENT
-                      ).apply {
-                          gravity = Gravity.TOP or Gravity.START
-                      }
-
-                      val view = CalibrationCanvasView(service)
-                      windowManager.addView(view, params)
-                      overlayView = view
-                      isShowing = true
-                  }
-              }
-
-              fun hide() {
-                  mainHandler.post {
-                      if (isShowing && overlayView != null) {
-                          windowManager.removeView(overlayView)
-                          overlayView = null
-                          isShowing = false
-                      }
-                  }
-              }
-
-              private inner class CalibrationCanvasView(context: Context) : View(context) {
-                  private var geom = service.gridGeometry
-                  private var draggingTopLeft = false
-                  private var draggingBottomRight = false
-
-                  private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = Color.argb(210, 0, 240, 190)
-                      style = Paint.Style.STROKE
-                      strokeWidth = 3f
-                  }
-                  private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = Color.argb(45, 0, 240, 190)
-                      style = Paint.Style.FILL
-                  }
-                  private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = Color.WHITE
-                      textSize = 34f
-                      textAlign = Paint.Align.CENTER
-                  }
-                  private val tlHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = Color.rgb(16, 220, 100)
-                      style = Paint.Style.FILL
-                  }
-                  private val brHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = Color.rgb(245, 60, 145)
-                      style = Paint.Style.FILL
-                  }
-
-                  override fun onDraw(canvas: Canvas) {
-                      super.onDraw(canvas)
-                      canvas.drawRect(geom.gridLeft, geom.gridTop, geom.gridRight, geom.gridBottom, fillPaint)
-
-                      for (lane in 0 until 16) {
-                          val row = lane / 4
-                          val col = lane % 4
-                          val left = geom.gridLeft + col * geom.cellWidth
-                          val top = geom.gridTop + row * geom.cellHeight
-                          val right = left + geom.cellWidth
-                          val bottom = top + geom.cellHeight
-
-                          canvas.drawRect(left + 4f, top + 4f, right - 4f, bottom - 4f, gridPaint)
-
-                          val center = geom.getPanelCenter(lane)
-                          canvas.drawCircle(center.x, center.y, 10f, gridPaint)
-                          canvas.drawText("${lane + 1}", center.x, center.y - 18f, textPaint)
-                      }
-
-                      canvas.drawCircle(geom.gridLeft, geom.gridTop, 28f, tlHandlePaint)
-                      canvas.drawCircle(geom.gridRight, geom.gridBottom, 28f, brHandlePaint)
-                  }
-
-                  override fun onTouchEvent(event: MotionEvent): Boolean {
-                      val x = event.x
-                      val y = event.y
-                      when (event.action) {
-                          MotionEvent.ACTION_DOWN -> {
-                              val distTl = hypot(x - geom.gridLeft, y - geom.gridTop)
-                              val distBr = hypot(x - geom.gridRight, y - geom.gridBottom)
-                              if (distTl <= 80f) {
-                                  draggingTopLeft = true
-                                  return true
-                              } else if (distBr <= 80f) {
-                                  draggingBottomRight = true
-                                  return true
-                              }
-                          }
-                          MotionEvent.ACTION_MOVE -> {
-                              if (draggingTopLeft) {
-                                  geom = geom.copy(
-                                      gridLeft = x.coerceIn(0f, geom.gridRight - 200f),
-                                      gridTop = y.coerceIn(100f, geom.gridBottom - 200f)
-                                  )
-                                  service.saveCalibration(geom)
-                                  invalidate()
-                                  return true
-                              } else if (draggingBottomRight) {
-                                  geom = geom.copy(
-                                      gridRight = x.coerceIn(geom.gridLeft + 200f, width.toFloat()),
-                                      gridBottom = y.coerceIn(geom.gridTop + 200f, height.toFloat())
-                                  )
-                                  service.saveCalibration(geom)
-                                  invalidate()
-                                  return true
-                              }
-                          }
-                          MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                              draggingTopLeft = false
-                              draggingBottomRight = false
-                          }
-                      }
-                      return super.onTouchEvent(event)
-                  }
-              }
-          }
-
-          class MediaProjectionRequestActivity : Activity() {
-
-              private val reqCodeMediaProjection = 4431
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                  startActivityForResult(mpManager.createScreenCaptureIntent(), reqCodeMediaProjection)
-              }
-
-              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-                  super.onActivityResult(requestCode, resultCode, data)
-                  if (requestCode == reqCodeMediaProjection && resultCode == RESULT_OK && data != null) {
-                      val serviceIntent = Intent(this, MediaProjectionSyncService::class.java).apply {
-                          putExtra("resultCode", resultCode)
-                          putExtra("resultData", data)
-                      }
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                          startForegroundService(serviceIntent)
-                      } else {
-                          startService(serviceIntent)
-                      }
-                  }
-                  finish()
-              }
-          }
-
-          object SampleCharts {
-              val BUILTIN_SAMPLE_EVE = listOf(
-                  "0,MEASURE,0",
-                  "0,TEMPO,400000",
-                  "300,PLAY,0",
-                  "360,PLAY,1",
-                  "420,PLAY,2",
-                  "480,PLAY,3",
-                  "540,PLAY,4",
-                  "600,PLAY,5",
-                  "660,PLAY,6",
-                  "720,PLAY,7",
-                  "780,PLAY,8",
-                  "840,PLAY,9",
-                  "900,PLAY,10",
-                  "960,PLAY,11",
-                  "1020,PLAY,12",
-                  "1080,PLAY,13",
-                  "1140,PLAY,14",
-                  "1200,PLAY,15",
-                  "1320,PLAY,0",
-                  "1320,PLAY,3",
-                  "1320,PLAY,12",
-                  "1320,PLAY,15",
-                  "1500,LONG,61653",
-                  "1500,LONG,61670",
-                  "1560,PLAY,1",
-                  "1620,PLAY,2",
-                  "1680,PLAY,9",
-                  "1740,PLAY,10",
-                  "1800,END,0"
-              ).joinToString("\n")
-          }
-
-          class MainActivity : AppCompatActivity() {
-
-              private val reqPickChartFile = 9001
-              private lateinit var statusBanner: TextView
-              private lateinit var chartPreviewInput: EditText
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-
-                  val scroll = ScrollView(this).apply {
-                      setBackgroundColor(Color.rgb(15, 23, 42))
-                  }
-                  val root = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL
-                      setPadding(40, 48, 40, 48)
-                  }
-
-                  val header = TextView(this).apply {
-                      text = "Jubeat Plus (v4.4.3) Auto-Play Bot\nSamsung Galaxy Tab A9+ (1200x1920 • Android 16)"
-                      setTextColor(Color.WHITE)
-                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-                      setPadding(0, 0, 0, 24)
-                  }
-                  root.addView(header)
-
-                  statusBanner = TextView(this).apply {
-                      setTextColor(Color.rgb(56, 189, 248))
-                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                      setPadding(0, 0, 0, 24)
-                  }
-                  root.addView(statusBanner)
-
-                  fun addStepButton(title: String, bgColor: Int, onClick: () -> Unit) {
-                      val btn = Button(this).apply {
-                          text = title
-                          setTextColor(Color.WHITE)
-                          setBackgroundColor(bgColor)
-                          setPadding(24, 22, 24, 22)
-                          setOnClickListener { onClick() }
-                      }
-                      val lp = LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT,
-                          LinearLayout.LayoutParams.WRAP_CONTENT
-                      ).apply { bottomMargin = 20 }
-                      root.addView(btn, lp)
-                  }
-
-                  addStepButton(
-                      "1. Open App Info (Enable 'Allow Restricted Settings' on Android 16)",
-                      Color.rgb(71, 85, 105)
-                  ) {
-                      val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                          data = Uri.fromParts("package", packageName, null)
-                      }
-                      startActivity(intent)
-                  }
-
-                  addStepButton(
-                      "2. Grant 'Appear on Top' (Overlay HUD Permission)",
-                      Color.rgb(37, 99, 235)
-                  ) {
-                      val intent = Intent(
-                          Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                          Uri.parse("package:$packageName")
-                      )
-                      startActivity(intent)
-                  }
-
-                  addStepButton(
-                      "3. Enable 'Jubeat AutoPlay Gesture Service' in Accessibility",
-                      Color.rgb(124, 58, 237)
-                  ) {
-                      startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                  }
-
-                  addStepButton(
-                      "4. Authorize MediaProjection Screen Sync (60/90fps Frame Detector)",
-                      Color.rgb(16, 185, 129)
-                  ) {
-                      startActivity(Intent(this, MediaProjectionRequestActivity::class.java))
-                  }
-
-                  addStepButton(
-                      "5. Load Beatmap File (.eve / .memon / .json / .txt)",
-                      Color.rgb(217, 119, 6)
-                  ) {
-                      val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                          addCategory(Intent.CATEGORY_OPENABLE)
-                          type = "*/*"
-                      }
-                      startActivityForResult(intent, reqPickChartFile)
-                  }
-
-                  addStepButton(
-                      "6. Show Floating HUD & Launch jubeat plus (v4.4.3)",
-                      Color.rgb(225, 29, 72)
-                  ) {
-                      val svc = JubeatAccessibilityService.instance
-                      if (svc == null) {
-                          Toast.makeText(this, "Enable Accessibility Service first (Step 3)!", Toast.LENGTH_LONG).show()
-                          return@addStepButton
-                      }
-                      val text = chartPreviewInput.text.toString()
-                      if (text.isNotBlank()) {
-                          svc.loadChart(text, "EditorChart")
-                      }
-                      svc.showFloatingHud()
-
-                      val launchIntent = packageManager.getLaunchIntentForPackage("com.konami.android.jubeat")
-                      if (launchIntent != null) {
-                          startActivity(launchIntent)
-                      } else {
-                          Toast.makeText(this, "Floating HUD active! Switch to jubeat plus.", Toast.LENGTH_SHORT).show()
-                      }
-                  }
-
-                  val editorLabel = TextView(this).apply {
-                      text = "Loaded Chart Data (.eve / .memon / .json / .txt) — Editable inline:"
-                      setTextColor(Color.LTGRAY)
-                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                      setPadding(0, 16, 0, 8)
-                  }
-                  root.addView(editorLabel)
-
-                  chartPreviewInput = EditText(this).apply {
-                      setText(SampleCharts.BUILTIN_SAMPLE_EVE)
-                      setTextColor(Color.rgb(226, 232, 240))
-                      setBackgroundColor(Color.rgb(30, 41, 59))
-                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                      minLines = 10
-                      setPadding(20, 20, 20, 20)
-                  }
-                  root.addView(chartPreviewInput)
-
-                  scroll.addView(root)
-                  setContentView(scroll)
-              }
-
-              override fun onResume() {
-                  super.onResume()
-                  refreshStatus()
-              }
-
-              private fun refreshStatus() {
-                  val overlayOk = Settings.canDrawOverlays(this)
-                  val accService = JubeatAccessibilityService.instance
-                  val mpOk = MediaProjectionSyncService.isCapturing
-                  val chart = accService?.currentChart
-
-                  statusBanner.text = buildString {
-                      appendLine("• Overlay Permission: ${if (overlayOk) "GRANTED" else "NOT GRANTED"}")
-                      appendLine("• Accessibility Service: ${if (accService != null) "ACTIVE" else "INACTIVE"}")
-                      appendLine("• MediaProjection Sync: ${if (mpOk) "CAPTURING" else "STANDBY"}")
-                      append("• Loaded Chart: ${chart?.title ?: "Default 16-Panel & Hold Test"} (${chart?.notes?.size ?: 22} notes)")
-                  }
-              }
-
-              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-                  super.onActivityResult(requestCode, resultCode, data)
-                  if (requestCode == reqPickChartFile && resultCode == Activity.RESULT_OK) {
-                      val uri = data?.data ?: return
-                      try {
-                          val content = contentResolver.openInputStream(uri)?.use { stream ->
-                              BufferedReader(InputStreamReader(stream)).readText()
-                          } ?: return
-                          chartPreviewInput.setText(content)
-                          val fileName = uri.lastPathSegment ?: "LoadedChart"
-                          val parsed = JubeatAccessibilityService.instance?.loadChart(content, fileName)
-                              ?: ChartParser.parseAuto(content, fileName)
-                          Toast.makeText(
-                              this,
-                              "Loaded ${parsed.title} (${parsed.notes.size} notes, BPM ${parsed.bpm.toInt()})",
-                              Toast.LENGTH_LONG
-                          ).show()
-                          refreshStatus()
-                      } catch (e: Exception) {
-                          Toast.makeText(this, "Error parsing chart: ${e.message}", Toast.LENGTH_LONG).show()
-                      }
-                  }
-              }
-          }
-          EOF_KT
-
-      - name: Setup Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+          set -e
+          rm -rf app build.gradle.kts settings.gradle.kts gradle.properties local.properties
+
+          python3 -c "import base64,io,tarfile; b64='''
+          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
+          '''; tarfile.open(fileobj=io.BytesIO(base64.b64decode(b64)),mode='r:xz').extractall('.')"
+
+          echo "=== Extracted Project Files ==="
+          find . -maxdepth 6 -not -path '*/.*'
+
+          # Locate or install Android SDK on runner
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_DIR" ]; then
+            echo "Installing Android SDK command-line tools..."
+            SDK_DIR="$HOME/android-sdk"
+            mkdir -p "$SDK_DIR/cmdline-tools"
+            curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
+            unzip -q cmdtools.zip -d "$SDK_DIR/cmdline-tools"
+            mv "$SDK_DIR/cmdline-tools/cmdline-tools" "$SDK_DIR/cmdline-tools/latest"
+            rm -f cmdtools.zip
+          fi
+
+          export ANDROID_HOME="$SDK_DIR"
+          export ANDROID_SDK_ROOT="$SDK_DIR"
+          echo "sdk.dir=$SDK_DIR" > local.properties
+
+          # Accept all Android SDK licenses and ensure platform 34 is installed
+          SDKMANAGER=$(find "$SDK_DIR" -name sdkmanager -type f | head -n 1 || true)
+          if [ -n "$SDKMANAGER" ]; then
+            set +o pipefail
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
+            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1 || true
+            set -o pipefail
+          fi
+
+          # Locate or install Gradle 8.9
+          if ! command -v gradle >/dev/null 2>&1; then
+            curl -sSL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o gradle.zip
+            unzip -q gradle.zip -d "$HOME"
+            export PATH="$HOME/gradle-8.9/bin:$PATH"
+          fi
+
+          gradle assembleDebug --no-daemon --stacktrace
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload Installable APK Artifact
         uses: actions/upload-artifact@v4
