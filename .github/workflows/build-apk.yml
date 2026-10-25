@@ -1,0 +1,679 @@
+name: Build Jubeat AutoPlay Bot APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate Android Project Files (No Separate ZIP Upload Needed)
+        run: |
+          if [ -f "jubeat_autoplay_bot_tab_a9plus.zip" ]; then
+            unzip -o jubeat_autoplay_bot_tab_a9plus.zip
+          fi
+          mkdir -p app/src/main/java/com/jubeatbot/autoplay app/src/main/res/xml app/src/main/res/values
+
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "JubeatAutoPlayBot"
+          include(":app")
+          EOF
+
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.7.2" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.jubeatbot.autoplay"
+              compileSdk = 35
+              defaultConfig {
+                  applicationId = "com.jubeatbot.autoplay"
+                  minSdk = 29
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0.0-tabA9plus"
+              }
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.15.0")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("com.google.android.material:material:1.12.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.jubeatbot.autoplay">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <queries>
+                  <package android:name="com.konami.android.jubeat" />
+              </queries>
+              <application
+                  android:allowBackup="true"
+                  android:label="Jubeat AutoPlay Bot (Tab A9+)"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <activity
+                      android:name=".MediaProjectionRequestActivity"
+                      android:exported="false"
+                      android:theme="@android:style/Theme.Translucent.NoTitleBar"
+                      android:excludeFromRecents="true" />
+                  <service
+                      android:name=".MediaProjectionSyncService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:foregroundServiceType="mediaProjection" />
+                  <service
+                      android:name=".JubeatAccessibilityService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:label="Jubeat AutoPlay Gesture Service"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_service_config" />
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/xml/accessibility_service_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagDefault"
+              android:canPerformGestures="true"
+              android:canRetrieveWindowContent="false"
+              android:description="@string/accessibility_service_description"
+              android:notificationTimeout="50" />
+          EOF
+
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Jubeat AutoPlay Bot</string>
+              <string name="accessibility_service_description">Executes chart-synced multi-touch taps and hold gestures on the 4x4 grid in jubeat plus (com.konami.android.jubeat) on Samsung Galaxy Tab A9+.</string>
+          </resources>
+          EOF
+
+          if [ ! -f "app/src/main/java/com/jubeatbot/autoplay/MainActivity.kt" ] && [ ! -f "app/src/main/java/com/jubeatbot/autoplay/JubeatAutoPlayBot.kt" ]; then
+          cat << 'EOF' > app/src/main/java/com/jubeatbot/autoplay/JubeatAutoPlayBot.kt
+          package com.jubeatbot.autoplay
+
+          import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.GestureDescription
+          import android.app.*
+          import android.content.*
+          import android.content.pm.ServiceInfo
+          import android.graphics.*
+          import android.hardware.display.DisplayManager
+          import android.hardware.display.VirtualDisplay
+          import android.media.ImageReader
+          import android.media.projection.MediaProjection
+          import android.media.projection.MediaProjectionManager
+          import android.net.Uri
+          import android.os.*
+          import android.provider.Settings
+          import android.util.TypedValue
+          import android.view.*
+          import android.view.accessibility.AccessibilityEvent
+          import android.widget.*
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.app.NotificationCompat
+          import kotlinx.coroutines.*
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.BufferedReader
+          import java.io.InputStreamReader
+          import kotlin.math.*
+
+          data class JubeatNote(
+              val lane: Int,
+              val timeMs: Long,
+              val durationMs: Long = 0L,
+              val tailChipLane: Int = lane
+          ) : Comparable<JubeatNote> {
+              val isHold: Boolean get() = durationMs > 0L
+              val endTimeMs: Long get() = timeMs + durationMs
+              override fun compareTo(other: JubeatNote): Int =
+                  timeMs.compareTo(other.timeMs).takeIf { it != 0 } ?: lane.compareTo(other.lane)
+          }
+
+          data class ParsedChart(
+              val title: String,
+              val difficulty: String,
+              val bpm: Double,
+              val notes: List<JubeatNote>,
+              val firstMeasureMs: Long = 0L
+          )
+
+          object ChartParser {
+              fun parseAuto(rawText: String, fileName: String = "Chart"): ParsedChart {
+                  val t = rawText.trim()
+                  return when {
+                      fileName.endsWith(".eve", true) || t.lineSequence().any { it.contains(",PLAY") || it.contains(",MEASURE") } ->
+                          parseKonamiEve(t, fileName)
+                      t.startsWith("{") && t.contains("\"data\"") -> parseMemonJson(t, fileName)
+                      else -> parseSimpleJson(t, fileName)
+                  }
+              }
+
+              fun parseKonamiEve(eveText: String, title: String = "EVE Chart"): ParsedChart {
+                  val notes = mutableListOf<JubeatNote>()
+                  var bpm = 120.0
+                  var bpmSet = false
+                  for (raw in eveText.lineSequence()) {
+                      val p = raw.trim().split(",")
+                      if (p.size < 3) continue
+                      val tick = p[0].trim().toLongOrNull() ?: continue
+                      val tag = p[1].trim().uppercase()
+                      val param = p[2].trim().toLongOrNull() ?: continue
+                      val timeMs = ((tick * 1000.0) / 300.0).roundToLong()
+                      when (tag) {
+                          "TEMPO" -> if (param > 0 && !bpmSet) { bpm = 60_000_000.0 / param; bpmSet = true }
+                          "PLAY" -> notes.add(JubeatNote((param and 0x0F).toInt(), timeMs, 0L))
+                          "LONG" -> {
+                              val lane = (param and 0x0F).toInt()
+                              val chip = ((param shr 4) and 0x0F).toInt()
+                              val durMs = (((param shr 8) * 1000.0) / 300.0).roundToLong().coerceAtLeast(50L)
+                              notes.add(JubeatNote(lane, timeMs, durMs, chip))
+                          }
+                      }
+                  }
+                  notes.sort()
+                  return ParsedChart(title.removeSuffix(".eve"), "EXT", bpm, notes, notes.firstOrNull()?.timeMs ?: 0L)
+              }
+
+              fun parseMemonJson(jsonText: String, fallbackTitle: String = "Memon"): ParsedChart {
+                  val root = JSONObject(jsonText)
+                  val meta = root.optJSONObject("metadata")
+                  val title = meta?.optString("title", fallbackTitle) ?: fallbackTitle
+                  val bpm = meta?.optDouble("BPM", root.optDouble("BPM", 120.0)) ?: 120.0
+                  val offsetMs = (-(meta?.optDouble("offset", 0.0) ?: 0.0) * 1000.0).roundToLong()
+                  val dataObj = root.getJSONObject("data")
+                  val diffKey = dataObj.keys().next()
+                  val chartObj = dataObj.getJSONObject(diffKey)
+                  val res = chartObj.optDouble("resolution", 240.0).coerceAtLeast(1.0)
+                  val arr = chartObj.getJSONArray("notes")
+                  val notes = mutableListOf<JubeatNote>()
+                  val msPerBeat = 60_000.0 / bpm
+                  for (i in 0 until arr.length()) {
+                      val n = arr.getJSONObject(i)
+                      val lane = n.getInt("n").coerceIn(0, 15)
+                      val rawT = n.getDouble("t")
+                      val rawL = n.optDouble("l", 0.0)
+                      val beats = if (rawT >= res) rawT / res else rawT
+                      val holdBeats = if (rawL >= res) rawL / res else rawL
+                      notes.add(JubeatNote(lane, (offsetMs + beats * msPerBeat).roundToLong().coerceAtLeast(0L), (holdBeats * msPerBeat).roundToLong().coerceAtLeast(0L)))
+                  }
+                  notes.sort()
+                  return ParsedChart(title, diffKey, bpm, notes, notes.firstOrNull()?.timeMs ?: 0L)
+              }
+
+              fun parseSimpleJson(jsonText: String, fallbackTitle: String = "Custom"): ParsedChart {
+                  val notes = mutableListOf<JubeatNote>()
+                  val arr = if (jsonText.trimStart().startsWith("{")) JSONObject(jsonText).getJSONArray("notes") else JSONArray(jsonText)
+                  for (i in 0 until arr.length()) {
+                      val o = arr.getJSONObject(i)
+                      val lane = if (o.has("lane")) o.getInt("lane") else (o.getInt("panel") - 1)
+                      notes.add(JubeatNote(lane.coerceIn(0, 15), o.getLong("timeMs"), o.optLong("durationMs", 0L)))
+                  }
+                  notes.sort()
+                  return ParsedChart(fallbackTitle, "CUSTOM", 120.0, notes, notes.firstOrNull()?.timeMs ?: 0L)
+              }
+          }
+
+          data class GridGeometry(
+              val screenWidth: Int = 1200,
+              val screenHeight: Int = 1920,
+              val gridLeft: Float = 36f,
+              val gridTop: Float = 696f,
+              val gridRight: Float = 1164f,
+              val gridBottom: Float = 1824f
+          ) {
+              val cellWidth: Float get() = (gridRight - gridLeft) / 4f
+              val cellHeight: Float get() = (gridBottom - gridTop) / 4f
+              fun getPanelCenter(lane: Int): PointF {
+                  val c = lane.coerceIn(0, 15)
+                  return PointF(gridLeft + ((c % 4) + 0.5f) * cellWidth, gridTop + ((c / 4) + 0.5f) * cellHeight)
+              }
+          }
+
+          data class FingerStrokeSpec(val lane: Int, val isContinuation: Boolean, val willContinue: Boolean)
+          data class GestureSlice(val startTimeMs: Long, val durationMs: Long, val strokes: List<FingerStrokeSpec>)
+
+          object GestureTimelineCompiler {
+              fun compile(notes: List<JubeatNote>): List<GestureSlice> {
+                  if (notes.isEmpty()) return emptyList()
+                  val sorted = notes.sorted()
+                  var anchor = sorted.first().timeMs
+                  val quantized = sorted.map { n ->
+                      val t = if (abs(n.timeMs - anchor) <= 10L) anchor else { anchor = n.timeMs; n.timeMs }
+                      n.copy(timeMs = t, durationMs = if (n.isHold) max(n.durationMs, 38L) else 38L)
+                  }
+                  val normalized = quantized.groupBy { it.lane }.values.flatMap { lnotes ->
+                      val ord = lnotes.sortedBy { it.timeMs }
+                      ord.mapIndexed { i, cur ->
+                          val nextStart = ord.getOrNull(i + 1)?.timeMs
+                          val maxEnd = if (nextStart != null) max(cur.timeMs + 16L, nextStart - 16L) else cur.endTimeMs
+                          cur.copy(durationMs = max(16L, min(cur.endTimeMs, maxEnd) - cur.timeMs))
+                      }
+                  }
+                  val bounds = normalized.flatMap { listOf(it.timeMs, it.endTimeMs) }.toSortedSet().toList()
+                  val slices = mutableListOf<GestureSlice>()
+                  for (i in 0 until bounds.size - 1) {
+                      val s = bounds[i]; val e = bounds[i + 1]
+                      if (e <= s) continue
+                      val active = normalized.filter { it.timeMs <= s && it.endTimeMs >= e }.take(10)
+                      if (active.isNotEmpty()) {
+                          slices.add(GestureSlice(s, e - s, active.map { FingerStrokeSpec(it.lane, it.timeMs < s, it.endTimeMs > e) }))
+                      }
+                  }
+                  return slices
+              }
+          }
+
+          class MediaProjectionSyncService : Service() {
+              companion object {
+                  var instance: MediaProjectionSyncService? = null
+                  var isCapturing: Boolean = false
+              }
+              private var mediaProjection: MediaProjection? = null
+              private var virtualDisplay: VirtualDisplay? = null
+              private var imageReader: ImageReader? = null
+              private var captureThread: HandlerThread? = null
+              @Volatile private var isArmed = false
+              private var targetLane = 0
+              private var targetTimeMs = 0L
+              private var baselineLuma = -1f
+              private var baselineSamples = 0
+              var onSyncLocked: ((Long) -> Unit)? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  instance = this
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val ch = NotificationChannel("jubeat_sync", "Jubeat Sync", NotificationManager.IMPORTANCE_LOW)
+                      getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+                  }
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  val notif = NotificationCompat.Builder(this, "jubeat_sync")
+                      .setContentTitle("Jubeat AutoPlay Bot")
+                      .setContentText("MediaProjection Sync Active")
+                      .setSmallIcon(android.R.drawable.ic_media_play)
+                      .build()
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      startForeground(4430, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+                  } else {
+                      startForeground(4430, notif)
+                  }
+                  val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
+                  val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      intent?.getParcelableExtra("resultData", Intent::class.java)
+                  } else {
+                      @Suppress("DEPRECATION") intent?.getParcelableExtra("resultData")
+                  }
+                  if (code == Activity.RESULT_OK && data != null) startCapture(code, data)
+                  return START_STICKY
+              }
+
+              private fun startCapture(code: Int, data: Intent) {
+                  val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                  val mp = mpm.getMediaProjection(code, data) ?: return
+                  mediaProjection = mp
+                  mp.registerCallback(object : MediaProjection.Callback() {
+                      override fun onStop() { isCapturing = false }
+                  }, null)
+                  val ht = HandlerThread("SyncThread").apply { start() }
+                  captureThread = ht
+                  val h = Handler(ht.looper)
+                  val geom = JubeatAccessibilityService.instance?.gridGeometry ?: GridGeometry()
+                  val ir = ImageReader.newInstance(geom.screenWidth / 2, geom.screenHeight / 2, PixelFormat.RGBA_8888, 3)
+                  imageReader = ir
+                  ir.setOnImageAvailableListener({ reader ->
+                      val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                      try {
+                          if (isArmed) {
+                              val tNanos = SystemClock.elapsedRealtimeNanos()
+                              val plane = img.planes[0]
+                              val buf = plane.buffer
+                              val ps = plane.pixelStride; val rs = plane.rowStride
+                              val c = geom.getPanelCenter(targetLane)
+                              val cx = (c.x / 2f).toInt().coerceIn(4, img.width - 5)
+                              val cy = (c.y / 2f).toInt().coerceIn(4, img.height - 5)
+                              val off = cy * rs + cx * ps
+                              if (off >= 0 && off + 2 < buf.limit()) {
+                                  val r = buf.get(off).toInt() and 0xFF
+                                  val g = buf.get(off + 1).toInt() and 0xFF
+                                  val b = buf.get(off + 2).toInt() and 0xFF
+                                  val luma = 0.299f * r + 0.587f * g + 0.114f * b
+                                  if (baselineSamples < 8) {
+                                      baselineLuma = if (baselineLuma < 0f) luma else (baselineLuma * 0.7f + luma * 0.3f)
+                                      baselineSamples++
+                                  } else if (abs(luma - baselineLuma) >= 28f) {
+                                      isArmed = false
+                                      val startNanos = tNanos - ((targetTimeMs - 767L) * 1_000_000L)
+                                      onSyncLocked?.invoke(startNanos)
+                                  }
+                              }
+                          }
+                      } finally { img.close() }
+                  }, h)
+                  virtualDisplay = mp.createVirtualDisplay("JubeatSync", geom.screenWidth / 2, geom.screenHeight / 2, resources.displayMetrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, ir.surface, null, h)
+                  isCapturing = true
+              }
+
+              fun armAutoSync(lane: Int, timeMs: Long) {
+                  targetLane = lane; targetTimeMs = timeMs; baselineLuma = -1f; baselineSamples = 0; isArmed = true
+              }
+              fun disarmAutoSync() { isArmed = false }
+              override fun onBind(intent: Intent?): IBinder? = null
+          }
+
+          class JubeatAccessibilityService : AccessibilityService() {
+              companion object { var instance: JubeatAccessibilityService? = null }
+              private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+              private var job: Job? = null
+              var gridGeometry = GridGeometry()
+              var currentChart: ParsedChart? = null
+              var compiledSlices: List<GestureSlice> = emptyList()
+              @Volatile var userTimingOffsetMs: Long = 0L
+              private var hudView: View? = null
+              private var calView: View? = null
+
+              override fun onServiceConnected() {
+                  super.onServiceConnected()
+                  instance = this
+                  loadChart(SampleCharts.SAMPLE_EVE, "Sample_16Panel_Hold_Test.eve")
+              }
+
+              fun loadChart(raw: String, name: String): ParsedChart {
+                  val c = ChartParser.parseAuto(raw, name)
+                  currentChart = c
+                  compiledSlices = GestureTimelineCompiler.compile(c.notes)
+                  return c
+              }
+
+              fun showFloatingHud() {
+                  if (hudView != null || !Settings.canDrawOverlays(this)) return
+                  val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                  val lp = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  ).apply { gravity = Gravity.TOP or Gravity.START; x = 24; y = 36 }
+
+                  val bar = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      setBackgroundColor(Color.argb(225, 18, 22, 31))
+                      setPadding(16, 12, 16, 12)
+                  }
+                  fun addBtn(txt: String, col: Int, fn: () -> Unit) {
+                      bar.addView(Button(this).apply {
+                          text = txt; setTextColor(Color.WHITE); setBackgroundColor(col)
+                          setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                          setOnClickListener { fn() }
+                      })
+                  }
+                  addBtn("AUTO-SYNC", Color.rgb(16, 124, 65)) {
+                      val fn = currentChart?.notes?.firstOrNull() ?: return@addBtn
+                      val mp = MediaProjectionSyncService.instance
+                      if (mp != null && MediaProjectionSyncService.isCapturing) {
+                          mp.onSyncLocked = { startPlaybackAtAnchor(it) }
+                          mp.armAutoSync(fn.lane, fn.timeMs)
+                          Toast.makeText(this, "Armed for 1st Note Marker!", Toast.LENGTH_SHORT).show()
+                      } else {
+                          startActivity(Intent(this, MediaProjectionRequestActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                      }
+                  }
+                  addBtn("SYNC 1ST", Color.rgb(0, 110, 210)) {
+                      val firstMs = currentChart?.notes?.firstOrNull()?.timeMs ?: 0L
+                      startPlaybackAtAnchor(SystemClock.elapsedRealtimeNanos() - firstMs * 1_000_000L)
+                  }
+                  addBtn("STOP", Color.rgb(185, 35, 35)) { stopPlayback() }
+                  addBtn("-10ms", Color.DKGRAY) { userTimingOffsetMs -= 10L }
+                  addBtn("+10ms", Color.DKGRAY) { userTimingOffsetMs += 10L }
+                  addBtn("4x4 GRID", Color.rgb(124, 58, 237)) { toggleCalOverlay() }
+                  wm.addView(bar, lp)
+                  hudView = bar
+              }
+
+              private fun toggleCalOverlay() {
+                  val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                  if (calView != null) { wm.removeView(calView); calView = null; return }
+                  val lp = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.MATCH_PARENT,
+                      WindowManager.LayoutParams.MATCH_PARENT,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  )
+                  val v = object : View(this) {
+                      val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.CYAN; style = Paint.Style.STROKE; strokeWidth = 3f }
+                      override fun onDraw(c: Canvas) {
+                          for (lane in 0 until 16) {
+                              val pt = gridGeometry.getPanelCenter(lane)
+                              c.drawCircle(pt.x, pt.y, 18f, p)
+                          }
+                      }
+                  }
+                  wm.addView(v, lp)
+                  calView = v
+              }
+
+              fun startPlaybackAtAnchor(songStartNanos: Long) {
+                  stopPlayback()
+                  val slices = compiledSlices
+                  job = scope.launch {
+                      val holding = mutableMapOf<Int, GestureDescription.StrokeDescription>()
+                      for (sl in slices) {
+                          if (!isActive) break
+                          val target = songStartNanos + (sl.startTimeMs + userTimingOffsetMs) * 1_000_000L
+                          val waitMs = (target - SystemClock.elapsedRealtimeNanos()) / 1_000_000L
+                          if (waitMs > 2L) delay(waitMs - 1L)
+                          while (SystemClock.elapsedRealtimeNanos() < target && isActive) Thread.yield()
+                          val builder = GestureDescription.Builder()
+                          val nextHolding = mutableMapOf<Int, GestureDescription.StrokeDescription>()
+                          val dur = sl.durationMs.coerceIn(16L, 59_000L)
+                          for (st in sl.strokes) {
+                              val pt = gridGeometry.getPanelCenter(st.lane)
+                              val path = Path().apply { moveTo(pt.x, pt.y); lineTo(pt.x + 0.5f, pt.y + 0.5f) }
+                              val sd = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && st.isContinuation && holding.containsKey(st.lane)) {
+                                  holding.getValue(st.lane).continueStroke(path, 0L, dur, st.willContinue)
+                              } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                  GestureDescription.StrokeDescription(path, 0L, dur, st.willContinue)
+                              } else {
+                                  GestureDescription.StrokeDescription(path, 0L, dur)
+                              }
+                              builder.addStroke(sd)
+                              if (st.willContinue) nextHolding[st.lane] = sd
+                          }
+                          holding.clear(); holding.putAll(nextHolding)
+                          dispatchGesture(builder.build(), null, null)
+                      }
+                  }
+              }
+
+              fun stopPlayback() {
+                  MediaProjectionSyncService.instance?.disarmAutoSync()
+                  job?.cancel(); job = null
+              }
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+              override fun onInterrupt() { stopPlayback() }
+          }
+
+          class MediaProjectionRequestActivity : Activity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                  startActivityForResult(mpm.createScreenCaptureIntent(), 4431)
+              }
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  if (requestCode == 4431 && resultCode == RESULT_OK && data != null) {
+                      val i = Intent(this, MediaProjectionSyncService::class.java).putExtra("resultCode", resultCode).putExtra("resultData", data)
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i) else startService(i)
+                  }
+                  finish()
+              }
+          }
+
+          object SampleCharts {
+              val SAMPLE_EVE = """
+                  0,MEASURE,0
+                  0,TEMPO,400000
+                  300,PLAY,0
+                  360,PLAY,1
+                  420,PLAY,2
+                  480,PLAY,3
+                  1320,PLAY,0
+                  1320,PLAY,3
+                  1320,PLAY,12
+                  1320,PLAY,15
+                  1500,LONG,61653
+                  1500,LONG,61670
+                  1560,PLAY,1
+                  1620,PLAY,2
+                  1800,END,0
+              """.trimIndent()
+          }
+
+          class MainActivity : AppCompatActivity() {
+              private lateinit var editor: EditText
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val scroll = ScrollView(this)
+                  val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 48, 40, 48) }
+                  fun addBtn(txt: String, fn: () -> Unit) {
+                      root.addView(Button(this).apply { text = txt; setOnClickListener { fn() } })
+                  }
+                  addBtn("1. Open App Info (Allow Restricted Settings on Android 16)") {
+                      startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+                  }
+                  addBtn("2. Grant Overlay Permission (Appear on Top)") {
+                      startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                  }
+                  addBtn("3. Enable Jubeat AutoPlay Gesture Service in Accessibility") {
+                      startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                  }
+                  addBtn("4. Authorize MediaProjection Screen Sync") {
+                      startActivity(Intent(this, MediaProjectionRequestActivity::class.java))
+                  }
+                  addBtn("5. Load Beatmap File (.eve / .memon / .json)") {
+                      startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 9001)
+                  }
+                  addBtn("6. Launch Floating HUD & Open jubeat plus") {
+                      val svc = JubeatAccessibilityService.instance
+                      if (svc != null) {
+                          svc.loadChart(editor.text.toString(), "Chart")
+                          svc.showFloatingHud()
+                          packageManager.getLaunchIntentForPackage("com.konami.android.jubeat")?.let { startActivity(it) }
+                      } else {
+                          Toast.makeText(this, "Enable Accessibility Service in Step 3 first!", Toast.LENGTH_LONG).show()
+                      }
+                  }
+                  editor = EditText(this).apply { setText(SampleCharts.SAMPLE_EVE); minLines = 8 }
+                  root.addView(editor)
+                  scroll.addView(root)
+                  setContentView(scroll)
+              }
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode == 9001 && resultCode == Activity.RESULT_OK) {
+                      val uri = data?.data ?: return
+                      val text = contentResolver.openInputStream(uri)?.use { BufferedReader(InputStreamReader(it)).readText() } ?: return
+                      editor.setText(text)
+                      JubeatAccessibilityService.instance?.loadChart(text, uri.lastPathSegment ?: "Chart")
+                  }
+              }
+          }
+          EOF
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build Debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload Installable APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jubeat-autoplay-bot-tab-a9plus-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
